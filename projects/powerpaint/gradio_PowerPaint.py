@@ -14,6 +14,14 @@ from pipeline.pipeline_PowerPaint_ControlNet import \
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from utils.utils import TokenizerWrapper, add_tokens
 
+
+if torch.cuda.is_available():
+  device = "cuda"
+elif torch.backends.mps.is_available():
+  device = "mps"
+else:
+  device = "cpu"
+
 torch.set_grad_enabled(False)
 
 weight_dtype = torch.float16
@@ -37,10 +45,10 @@ pipe.unet.load_state_dict(
     torch.load('./models/unet/diffusion_pytorch_model.bin'), strict=False)
 pipe.text_encoder.load_state_dict(
     torch.load('./models/text_encoder/pytorch_model.bin'), strict=False)
-pipe = pipe.to('cuda')
+pipe = pipe.to(device)
 
 depth_estimator = DPTForDepthEstimation.from_pretrained(
-    'Intel/dpt-hybrid-midas').to('cuda')
+    'Intel/dpt-hybrid-midas').to(device)
 feature_extractor = DPTFeatureExtractor.from_pretrained(
     'Intel/dpt-hybrid-midas')
 openpose = OpenposeDetector.from_pretrained('lllyasviel/ControlNet')
@@ -61,8 +69,8 @@ def set_seed(seed):
 
 def get_depth_map(image):
     image = feature_extractor(
-        images=image, return_tensors='pt').pixel_values.to('cuda')
-    with torch.no_grad(), torch.autocast('cuda'):
+        images=image, return_tensors='pt').pixel_values.to(device)
+    with torch.no_grad(), torch.autocast(device):
         depth_map = depth_estimator(image).predicted_depth
 
     depth_map = torch.nn.functional.interpolate(
@@ -236,7 +244,7 @@ def predict_controlnet(input_image, input_control_image, control_type, prompt,
     control_pipe = controlnetPipeline(pipe.vae, pipe.text_encoder,
                                       pipe.tokenizer, pipe.unet, base_control,
                                       pipe.scheduler, None, None, False)
-    control_pipe = control_pipe.to('cuda')
+    control_pipe = control_pipe.to(device)
     if current_control != control_type:
         if control_type == 'canny' or control_type is None:
             control_pipe.controlnet = ControlNetModel.from_pretrained(
@@ -250,7 +258,7 @@ def predict_controlnet(input_image, input_control_image, control_type, prompt,
         else:
             control_pipe.controlnet = ControlNetModel.from_pretrained(
                 'lllyasviel/sd-controlnet-hed', torch_dtype=weight_dtype)
-        control_pipe = control_pipe.to('cuda')
+        control_pipe = control_pipe.to(device)
         current_control = control_type
 
     controlnet_image = input_control_image
